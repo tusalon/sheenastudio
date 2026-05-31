@@ -1,6 +1,6 @@
 // sw.js - Service Worker para Sheena Studio
 
-const CACHE_NAME = 'sheenastudio-v1';
+const CACHE_NAME = 'sheenastudio-v47';
 const urlsToCache = [
   '/sheenastudio/',
   '/sheenastudio/index.html',
@@ -17,7 +17,14 @@ const urlsToCache = [
   '/sheenastudio/icons/icon-152x152.png',
   '/sheenastudio/icons/icon-192x192.png',
   '/sheenastudio/icons/icon-384x384.png',
-  '/sheenastudio/icons/icon-512x512.png'
+  '/sheenastudio/icons/icon-512x512.png',
+  '/sheenastudio/vendor/react.production.min.js',
+  '/sheenastudio/vendor/react-dom.production.min.js',
+  '/sheenastudio/vendor/babel.min.js',
+  '/sheenastudio/vendor/bcrypt.min.js',
+  '/sheenastudio/vendor/tailwind-browser.js',
+  '/sheenastudio/vendor/lucide/lucide.css',
+  '/sheenastudio/vendor/lucide/lucide.woff2'
 ];
 
 // ============================================

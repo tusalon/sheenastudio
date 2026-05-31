@@ -118,13 +118,11 @@ function Calendar({ onDateSelect, selectedDate, profesional, profesionalCompleto
         }, {});
     };
 
-    const slotDisponible = ({ slotStr, duracion, slotsDia, descansosDelDia, reservasDia, fechaHoraSlot, minFechaPermitida, duracionTurno, intervaloTurnos }) => {
+    const slotDisponible = ({ slotStr, duracion, descansosDelDia, reservasDia, fechaHoraSlot, minFechaPermitida }) => {
         const slotStart = timeToMinutes(slotStr);
         const slotEnd = slotStart + (parseInt(duracion, 10) || 60);
-        const bloquesTrabajo = crearBloquesTrabajo(slotsDia, duracionTurno, intervaloTurnos);
 
         if (fechaHoraSlot < minFechaPermitida) return false;
-        if (!bloquesTrabajo.some(bloque => slotStart >= bloque.inicio && slotEnd <= bloque.fin)) return false;
         if (slotTieneDescanso(slotStart, slotEnd, descansosDelDia)) return false;
 
         return !reservasDia.some(reserva => {
@@ -190,9 +188,7 @@ function Calendar({ onDateSelect, selectedDate, profesional, profesionalCompleto
 
     React.useEffect(() => {
         if (!selectedDate || cargandoDisponibilidad || !disponibilidadVerificada) return;
-        if (fechasSinDisponibilidad.includes(selectedDate)) {
-            onDateSelect('');
-        }
+        // Un dia lleno se deja seleccionado para que TimeSlots muestre la lista de espera.
     }, [selectedDate, fechasSinDisponibilidad, cargandoDisponibilidad, disponibilidadVerificada]);
 
     const verificarDisponibilidadMes = async (horarios, descansos = {}, configOverride = null) => {
@@ -214,8 +210,6 @@ function Calendar({ onDateSelect, selectedDate, profesional, profesionalCompleto
             const fechaFin = formatDate(new Date(year, month + 1, 0));
             const minHoras = configOverride?.min_antelacion_horas ?? minAntelacionHoras;
             const maxDias = configOverride?.max_antelacion_dias ?? maxAntelacionDias;
-            const duracionTurno = Number(configOverride?.duracion_turnos || 60);
-            const intervaloTurnos = Number(configOverride?.intervalo_entre_turnos || 0);
             
             const asignacionesMultiples = service?.esMultiple && profesionalCompleto?.esMultiple
                 ? (profesionalCompleto.asignaciones || [])
@@ -251,7 +245,7 @@ function Calendar({ onDateSelect, selectedDate, profesional, profesionalCompleto
                     baseSlots = baseSlots.filter(slot => servicioPermiteHorario(service, slot));
                 }
                 
-                if (baseSlots.length === 0 || diffDias > maxDias) {
+                if (baseSlots.length === 0 || (Number(maxDias) > 0 && diffDias > Number(maxDias))) {
                     sinDisponibilidad.push(fechaStr);
                     continue;
                 }
@@ -274,10 +268,8 @@ function Calendar({ onDateSelect, selectedDate, profesional, profesionalCompleto
                             const duracion = parseInt(item.servicio?.duracion, 10) || 60;
                             const inicio = cursor;
                             const fin = inicio + duracion;
-                            const slotsDia = (item.horarios[diaSemana] || []).map(indiceToHoraLegible);
-                            const bloquesTrabajo = crearBloquesTrabajo(slotsDia, duracionTurno, intervaloTurnos);
-
-                            if (!bloquesTrabajo.some(bloque => inicio >= bloque.inicio && fin <= bloque.fin)) return false;
+                            const slotsDia = item.horarios[diaSemana] || [];
+                            if (slotsDia.length === 0) return false;
                             if (slotTieneDescanso(inicio, fin, item.descansos[diaSemana] || [])) return false;
 
                             const conflicto = (item.reservasPorFecha[fechaStr] || []).some(reserva => {
@@ -304,8 +296,6 @@ function Calendar({ onDateSelect, selectedDate, profesional, profesionalCompleto
                             reservasDia: reservasPorFecha[fechaStr] || [],
                             fechaHoraSlot,
                             minFechaPermitida,
-                            duracionTurno,
-                            intervaloTurnos
                         });
                     });
                 }
@@ -341,6 +331,15 @@ function Calendar({ onDateSelect, selectedDate, profesional, profesionalCompleto
     const esDiaCerrado = (date) => diasCerrados.includes(formatDate(date));
     const esDiaLibreProfesional = (date) => (fechasLibresProfesional || []).includes(formatDate(date));
     const esDiaSinDisponibilidad = (date) => fechasSinDisponibilidad.includes(formatDate(date));
+    const estaDentroDeAntelacion = (date) => {
+        if (Number(maxAntelacionDias) <= 0) return true;
+        const hoy = new Date();
+        hoy.setHours(0, 0, 0, 0);
+        const fecha = new Date(date);
+        fecha.setHours(0, 0, 0, 0);
+        const diffDias = Math.ceil((fecha - hoy) / (1000 * 60 * 60 * 24));
+        return diffDias <= Number(maxAntelacionDias);
+    };
 
     const tieneHorariosConfigurados = (date) => {
         const diasSemana = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
@@ -445,16 +444,21 @@ function Calendar({ onDateSelect, selectedDate, profesional, profesionalCompleto
                             const diaLibreProfesional = esDiaLibreProfesional(date);
                             const sinDisponibilidad = esDiaSinDisponibilidad(date);
                             const tieneHorarios = tieneHorariosConfigurados(date);
-                            const available = disponibilidadVerificada && !cargandoDisponibilidad && !past && profesionalTrabaja && !cerrado && !diaLibreProfesional && !sinDisponibilidad && tieneHorarios;
+                            const dentroDeAntelacion = estaDentroDeAntelacion(date);
+                            const puedeListaEspera = disponibilidadVerificada && !cargandoDisponibilidad && !past && profesionalTrabaja && !cerrado && !diaLibreProfesional && sinDisponibilidad && tieneHorarios && dentroDeAntelacion;
+                            const available = disponibilidadVerificada && !cargandoDisponibilidad && !past && profesionalTrabaja && !cerrado && !diaLibreProfesional && !sinDisponibilidad && tieneHorarios && dentroDeAntelacion;
+                            const selectable = available || puedeListaEspera;
                             
                             let className = "h-10 w-full flex items-center justify-center rounded-lg text-sm font-medium transition-all relative";
                             if (selected) className += " bg-pink-500 text-white shadow-md scale-105 ring-2 ring-pink-300";
-                            else if (!available) className += " text-pink-300 cursor-not-allowed bg-pink-50/50";
+                            else if (puedeListaEspera) className += " text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 hover:scale-105 cursor-pointer";
+                            else if (!selectable) className += " text-pink-300 cursor-not-allowed bg-pink-50/50";
                             else className += " text-pink-700 hover:bg-pink-100 hover:text-pink-600 hover:scale-105 cursor-pointer";
                             
                             let title = "";
                             if (cerrado) title = "Dia cerrado";
                             else if (diaLibreProfesional) title = `${profesional?.nombre} no trabaja este dia`;
+                            else if (puedeListaEspera) title = "Dia lleno: puedes anotarte en lista de espera";
                             else if (sinDisponibilidad) title = "Sin horarios disponibles para este servicio";
                             else if (!disponibilidadVerificada || cargandoDisponibilidad) title = "Verificando disponibilidad";
                             else if (past && dateStr === getTodayLocalString()) title = "Hoy ya no hay horarios disponibles";
@@ -466,12 +470,14 @@ function Calendar({ onDateSelect, selectedDate, profesional, profesionalCompleto
                             else title = "Disponible";
                             
                             return (
-                                <button key={idx} onClick={() => available && onDateSelect(dateStr)} disabled={!available} className={className} title={title}>
+                                <button key={idx} onClick={() => selectable && onDateSelect(dateStr)} disabled={!selectable} className={className} title={title}>
                                     {date.getDate()}
                                     {cerrado && <span className="absolute top-0 right-0 text-[10px] text-red-500">×</span>}
                                     {diaLibreProfesional && !cerrado && <span className="absolute top-0 right-0 text-[10px] text-orange-500">○</span>}
-                                    {sinDisponibilidad && !cerrado && !diaLibreProfesional && <span className="absolute top-0 right-0 text-[10px] text-red-500">×</span>}
+                                    {puedeListaEspera && <span className="absolute top-0 right-0 text-[10px] text-amber-500">!</span>}
+                                    {sinDisponibilidad && !puedeListaEspera && !cerrado && !diaLibreProfesional && <span className="absolute top-0 right-0 text-[10px] text-red-500">×</span>}
                                     {available && !selected && <span className="absolute bottom-0.5 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-pink-400 rounded-full"></span>}
+                                    {puedeListaEspera && !selected && <span className="absolute bottom-0.5 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-amber-400 rounded-full"></span>}
                                 </button>
                             );
                         })}

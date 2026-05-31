@@ -116,6 +116,22 @@ function aplicarPlantillaPago(configNegocio, booking, datos) {
     });
 }
 
+function aplicarPlantillaMensaje(plantilla, booking, datos, configNegocio) {
+    const texto = String(plantilla || '').trim();
+    if (!texto) return '';
+
+    const reemplazos = {
+        nombre_negocio: configNegocio?.nombre || 'Mi Salon',
+        cliente: booking?.cliente_nombre || '',
+        servicio: booking?.servicio || '',
+        fecha: datos.fechaConDia || '',
+        hora: datos.horaFormateada || '',
+        profesional: datos.profesional || ''
+    };
+
+    return texto.replace(/\{([^}]+)\}/g, (match, key) => reemplazos[key] ?? match);
+}
+
 window.generarLinkCalendarioCliente = generarLinkCalendarioCliente;
 window.generarLineaCalendarioCliente = generarLineaCalendarioCliente;
 
@@ -129,11 +145,9 @@ window.enviarWhatsApp = function(telefono, mensaje) {
     try {
         console.log('📤 enviarWhatsApp llamado a:', telefono);
 
-        const telefonoLimpio = telefono.toString().replace(/\D/g, '');
-        let numeroCompleto = telefonoLimpio;
-        if (!numeroCompleto.startsWith('53')) {
-            numeroCompleto = `53${telefonoLimpio}`;
-        }
+        const numeroCompleto = window.normalizarTelefonoInternacional
+            ? window.normalizarTelefonoInternacional(telefono)
+            : telefono.toString().replace(/\D/g, '');
 
         const mensajeCodificado = encodeURIComponent(mensaje);
         const url = `https://api.whatsapp.com/send?phone=${numeroCompleto}&text=${mensajeCodificado}`;
@@ -240,10 +254,10 @@ ${mensajePagoConfig || `
    Alias: ${configNegocio.alias || 'alias.no.configurado'}
 
 📱 *Enviar comprobante a este WhatsApp:*
-   +53 ${configNegocio.telefono || '00000000'}
+   ${window.formatearTelefono ? window.formatearTelefono(configNegocio.telefono, configNegocio.codigo_pais) : `+${configNegocio.telefono || '00000000'}`}
 
 ⏳ *Importante:*
-El turno se cancelará automáticamente si no se confirma el pago dentro de las ${configNegocio.tiempo_vencimiento || 2} horas.`}
+El turno se liberará automáticamente si no se confirma el pago dentro de las ${configNegocio.tiempo_vencimiento || 2} horas.`}
 ${lineaCalendario}
 Cuando confirmemos tu pago, tu turno quedará reservado.
 
@@ -339,6 +353,44 @@ Cualquier cambio, podés cancelarlo desde la app con hasta 1 hora de anticipaci�
     }
 };
 
+window.enviarMensajeInasistencia = async function(booking, configNegocio) {
+    try {
+        if (!booking) {
+            console.error('❌ No hay datos de reserva');
+            return false;
+        }
+
+        if (!configNegocio) {
+            configNegocio = await window.cargarConfiguracionNegocio();
+        }
+
+        const { fechaConDia, horaFormateada } = getFechaHora(booking);
+        const profesional = getProfesional(booking);
+        const mensajeBase = configNegocio?.mensaje_inasistencia ||
+`Hola {cliente}, registramos que no asististe a tu turno en {nombre_negocio}.
+
+Servicio: {servicio}
+Fecha: {fecha}
+Hora: {hora}
+Profesional: {profesional}
+
+Si necesitas reprogramar, por favor escribenos por este WhatsApp.`;
+
+        const mensajeFinal = aplicarPlantillaMensaje(mensajeBase, booking, {
+            fechaConDia,
+            horaFormateada,
+            profesional
+        }, configNegocio);
+
+        window.enviarWhatsApp(booking.cliente_whatsapp, mensajeFinal);
+        console.log('✅ Mensaje de inasistencia enviado al cliente');
+        return true;
+    } catch (error) {
+        console.error('Error en enviarMensajeInasistencia:', error);
+        return false;
+    }
+};
+
 window.notificarNuevaReserva = async function(booking) {
     try {
         if (!booking) {
@@ -423,6 +475,8 @@ window.notificarReservaPendiente = async function(booking) {
 ⏰ *Hora:* ${horaFormateada}
 💅 *Servicio:* ${booking.servicio}
 👩‍🎨 *Profesional:* ${profesional}
+*Cliente:* ${booking.cliente_nombre}
+*WhatsApp:* ${booking.cliente_whatsapp}
 ${lineaDireccion}
 
 ${mensajePagoConfig || `
@@ -433,15 +487,13 @@ ${mensajePagoConfig || `
    Alias: ${configNegocio.alias || 'alias.no.configurado'}
 
 📱 *Enviar comprobante a este WhatsApp:*
-   +53 ${configNegocio.telefono || '00000000'}
+   ${window.formatearTelefono ? window.formatearTelefono(configNegocio.telefono, configNegocio.codigo_pais) : `+${configNegocio.telefono || '00000000'}`}
 
 ⏳ *Importante:*
-El turno se cancelará automáticamente si no se confirma el pago dentro de las ${configNegocio.tiempo_vencimiento || 2} horas.`}
+El turno se liberará automáticamente si no se confirma el pago dentro de las ${configNegocio.tiempo_vencimiento || 2} horas.`}
 ${lineaCalendario}
 
 ¡Gracias por elegirnos! 💖`;
-
-        window.enviarWhatsApp(booking.cliente_whatsapp, mensajeFinal);
 
         const mensajePush =
 `🆕 RESERVA PENDIENTE - ${configNegocio.nombre}
@@ -456,7 +508,9 @@ ${lineaCalendario}
             'high'
         );
 
-        console.log('✅ Cliente notificada con datos de pago + Push a la dueña');
+        window.enviarWhatsApp(configNegocio.telefono, mensajeFinal);
+
+        console.log('✅ Admin notificado con solicitud de anticipo + push enviado');
         return true;
     } catch (error) {
         console.error('Error en notificarReservaPendiente:', error);
