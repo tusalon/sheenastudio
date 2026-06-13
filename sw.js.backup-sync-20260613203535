@@ -1,6 +1,6 @@
 // sw.js - Service Worker para Sheena Studio
 
-const CACHE_NAME = 'sheenastudio-v53';
+const CACHE_NAME = 'sheenastudio-v49';
 const urlsToCache = [
   '/sheenastudio/',
   '/sheenastudio/index.html',
